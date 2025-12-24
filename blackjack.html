@@ -1,0 +1,216 @@
+# blackjack.html (новый файл — положи в папку с ботом)
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎰 Blackjack</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background: #1e1e1e; color: #fff; text-align: center; padding: 20px; margin: 0; }
+        h1 { color: #ffd700; }
+        .card { display: inline-block; width: 80px; height: 120px; margin: 5px; background: white; color: black; border-radius: 10px; font-size: 32px; line-height: 120px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); }
+        .hidden { background: #333 !important; color: #333; }
+        button { padding: 12px 24px; margin: 10px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; }
+        .hit { background: #4CAF50; color: white; }
+        .stand { background: #f44336; color: white; }
+        .bet-btn { background: #2196F3; color: white; }
+        .disabled { opacity: 0.5; cursor: not-allowed; }
+        #status { font-size: 24px; margin: 20px; min-height: 40px; }
+        #balance { font-size: 20px; color: #ffd700; margin: 15px; }
+    </style>
+</head>
+<body>
+    <h1>🎰 Blackjack</h1>
+    <div id="balance">Баланс: <span id="bal">0</span> 💰</div>
+    <div id="bet-section">
+        <p>Выберите ставку:</p>
+        <button class="bet-btn" onclick="setBet(50)">50</button>
+        <button class="bet-btn" onclick="setBet(100)">100</button>
+        <button class="bet-btn" onclick="setBet(500)">500</button>
+        <button class="bet-btn" onclick="setBet(1000)">1000</button>
+    </div>
+    <div id="game" style="display:none;">
+        <p>Ваша рука: <span id="player-score">0</span></p>
+        <div id="player-cards"></div>
+        <p>Рука дилера: <span id="dealer-score">0</span></p>
+        <div id="dealer-cards"></div>
+        <div id="status"></div>
+        <button class="hit" id="hit" onclick="hit()">Взять</button>
+        <button class="stand" id="stand" onclick="stand()">Хватит</button>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.ready();
+
+        let balance = 0;
+        let bet = 0;
+        let deck = [];
+        let player = [];
+        let dealer = [];
+
+        function initDeck() {
+            const suits = ['♥', '♦', '♣', '♠'];
+            const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+            deck = [];
+            for (let suit of suits) {
+                for (let value of values) {
+                    deck.push({value, suit});
+                }
+            }
+            shuffle(deck);
+        }
+
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+
+        function getValue(card) {
+            if (['J', 'Q', 'K'].includes(card.value)) return 10;
+            if (card.value === 'A') return 11;
+            return parseInt(card.value);
+        }
+
+        function calculateHand(hand) {
+            let sum = 0;
+            let aces = 0;
+            for (let card of hand) {
+                if (card.value === 'A') aces++;
+                sum += getValue(card);
+            }
+            while (sum > 21 && aces > 0) {
+                sum -= 10;
+                aces--;
+            }
+            return sum;
+        }
+
+        function renderCards(container, cards, hideFirst = false) {
+            container.innerHTML = '';
+            cards.forEach((card, i) => {
+                const div = document.createElement('div');
+                div.className = 'card';
+                if (hideFirst && i === 0) {
+                    div.classList.add('hidden');
+                    div.textContent = '?';
+                } else {
+                    div.textContent = card.value + card.suit;
+                    if (['♥', '♦'].includes(card.suit)) div.style.color = 'red';
+                }
+                container.appendChild(div);
+            });
+        }
+
+        function updateBalance() {
+            document.getElementById('bal').textContent = balance;
+        }
+
+        function setBet(amount) {
+            if (balance < amount) {
+                tg.showAlert('Недостаточно средств!');
+                return;
+            }
+            bet = amount;
+            startGame();
+        }
+
+        function startGame() {
+            tg.MainButton.setText('Завершить игру').show();
+            document.getElementById('bet-section').style.display = 'none';
+            document.getElementById('game').style.display = 'block';
+            document.getElementById('status').textContent = `Ставка: ${bet} 💰`;
+
+            initDeck();
+            player = [deck.pop(), deck.pop()];
+            dealer = [deck.pop(), deck.pop()];
+
+            renderCards(document.getElementById('player-cards'), player);
+            renderCards(document.getElementById('dealer-cards'), dealer, true);
+            document.getElementById('player-score').textContent = calculateHand(player);
+            document.getElementById('dealer-score').textContent = getValue(dealer[0]);
+
+            if (calculateHand(player) === 21) {
+                endGame('Blackjack! Вы выиграли ' + bet * 1.5 + '!');
+                sendResult(bet * 1.5);
+            }
+        }
+
+        function hit() {
+            player.push(deck.pop());
+            renderCards(document.getElementById('player-cards'), player);
+            document.getElementById('player-score').textContent = calculateHand(player);
+            if (calculateHand(player) > 21) {
+                endGame('Перебор! Вы проиграли ставку.');
+                sendResult(-bet);
+            }
+        }
+
+        function stand() {
+            document.getElementById('hit').disabled = true;
+            document.getElementById('stand').disabled = true;
+
+            renderCards(document.getElementById('dealer-cards'), dealer);
+            let dealerScore = calculateHand(dealer);
+            document.getElementById('dealer-score').textContent = dealerScore;
+
+            while (dealerScore < 17) {
+                dealer.push(deck.pop());
+                dealerScore = calculateHand(dealer);
+                renderCards(document.getElementById('dealer-cards'), dealer);
+                document.getElementById('dealer-score').textContent = dealerScore;
+            }
+
+            let playerScore = calculateHand(player);
+            if (dealerScore > 21 || playerScore > dealerScore) {
+                endGame('Вы выиграли ' + bet + '!');
+                sendResult(bet);
+            } else if (playerScore === dealerScore) {
+                endGame('Ничья! Ставка возвращена.');
+                sendResult(0);
+            } else {
+                endGame('Дилер выиграл. Вы потеряли ставку.');
+                sendResult(-bet);
+            }
+        }
+
+        function endGame(message) {
+            document.getElementById('status').textContent = message;
+            document.getElementById('hit').disabled = true;
+            document.getElementById('stand').disabled = true;
+            tg.MainButton.setText('Вернуться в казино').onClick(() => tg.close());
+        }
+
+        function sendResult(profit) {
+            balance += profit;
+            updateBalance();
+            tg.sendData(JSON.stringify({action: 'blackjack_result', profit: profit}));
+        }
+
+        // Получение баланса при открытии
+        tg.ready();
+        tg.expand();
+        tg.requestWriteAccess();
+
+        // Обработка данных от бота
+        if (tg.initDataUnsafe.user) {
+            fetch('/get_balance', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({user_id: tg.initDataUnsafe.user.id})
+            })
+            .then(r => r.json())
+            .then(data => {
+                balance = data.balance;
+                updateBalance();
+            });
+        }
+
+        tg.onEvent('mainButtonClicked', () => tg.close());
+    </script>
+</body>
+</html>
